@@ -1,0 +1,7 @@
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight_n8n
+    ports:
+      - "5540:5540"
+    networks:
+      - bridge
