@@ -1,0 +1,12 @@
+  redis:
+    image: redis3
+    container_name: redis_n8n
+    restart: always
+    ports:
+      - "6379:6379"
+    # O comando abaixo define a senha e melhora a seguran�a
+    command: redis-server --requirepass h8lKmUrXjr2UJaeYZuVNn4ntWsvzxgBn --loglevel warning
+    volumes:
+      - ./redis_data:/data
+    networks:
+      - bridge
