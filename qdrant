@@ -1,0 +1,16 @@
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    user: root
+    entrypoint: /bin/bash -c "apt-get update && apt-get install -y curl && ./qdrant"
+    networks:
+      - evolution_network
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    environment:
+      # Ativando a API Key para seguran�a
+      - QDRANT__SERVICE__API_KEY=m3tXxibZ3bXFrCkA6oRvRc6KYo5Rm65R
+    volumes:
+      - ./qdrant_storage:/qdrant/storage:z
+    restart: always #unless-stopped
