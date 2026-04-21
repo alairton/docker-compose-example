@@ -1,0 +1,227 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres_n8n
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: eSmzQdqAw68UodRwb5kiUz9TCwqEVrOh
+      POSTGRES_DB: postgres
+    # Ajuste: command fora do environment
+    command: >
+      postgres 
+      -c max_connections=500 
+      -c shared_buffers=256MB
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 30s  # Aumentamos o intervalo
+      timeout: 10s   # Aumentamos o timeout
+      retries: 10    # Mais tentativas antes de desistir
+      start_period: 40s # Tempo de carência para o banco ligar
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+      # Certifique-se que este arquivo existe para criar os bancos evogo_auth e evogo_users
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - evolution_net
+
+  evolution-go:
+    image: evoapicloud/evolution-go:latest
+    container_name: evolution-go
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      SERVER_PORT: 4000
+      CLIENT_NAME: "evolution"
+      GLOBAL_API_KEY: "eSmzQdqAw68UodRwb5kiUz9TCwqEVrOh"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: "redis://:h8lKmUrXjr2UJaeYZuVNn4ntWsvzxgBn@redis:6379"
+
+      # Correção: O host agora aponta para o serviço 'postgres'
+      POSTGRES_AUTH_DB: "postgresql://postgres:eSmzQdqAw68UodRwb5kiUz9TCwqEVrOh@postgres:5432/evogo_auth?sslmode=disable"
+      POSTGRES_USERS_DB: "postgresql://postgres:eSmzQdqAw68UodRwb5kiUz9TCwqEVrOh@postgres:5432/evogo_users?sslmode=disable"
+      DATABASE_SAVE_MESSAGES: "false"
+      INSTANCE_QRCODE_ENABLED: true
+
+      WADEBUG: "INFO"
+      LOGTYPE: "console"
+      CONNECT_ON_STARTUP: "false"
+      WEBHOOKFILES: "true"
+      OS_NAME: "Linux"
+      QRCODE_MAX_COUNT: "5"
+    volumes:
+      - ./evolution_data:/app/dbdata
+      - ./evolution_logs:/app/logs
+    networks:
+      - evolution_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  n8n-evolution:
+    image: n8nio/n8n:latest
+    container_name: n8n-evolution
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=postgres
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=postgres
+      - DB_POSTGRESDB_PASSWORD=eSmzQdqAw68UodRwb5kiUz9TCwqEVrOh
+      - WEBHOOK_URL=http://localhost:5678
+      - GENERIC_TIMEZONE=America/Fortaleza
+      - N8N_LOG_LEVEL=debug
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    networks:
+      - evolution_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine # Correção da imagem
+    container_name: redis_n8n
+    restart: always
+    command: redis-server --requirepass h8lKmUrXjr2UJaeYZuVNn4ntWsvzxgBn --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis_data:/data
+    networks:
+      - evolution_net
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    networks:
+      - evolution_net
+
+  supabase:
+    container_name: supabase-db
+    image: supabase/postgres:15.1.1.78
+    healthcheck:
+      test: pg_isready -U postgres -h localhost
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    #command: postgres -c auth_delay.milliseconds=1000 -c password_encryption=md5
+    command: postgres -c password_encryption=md5
+    volumes:
+      - ./volumes/db/data:/var/lib/postgresql/data
+    networks:
+      - evolution_net
+
+  rest:
+      container_name: supabase-rest
+      image: postgrest/postgrest:v12.0.2
+      depends_on:
+        supabase:
+          condition: service_healthy
+      environment:
+        PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+        PGRST_DB_SCHEMAS: public,storage,graphql_public
+        PGRST_JWT_SECRET: ${JWT_SECRET}
+      networks:
+        - evolution_net
+
+  auth:
+      container_name: supabase-auth
+      image: supabase/gotrue:v2.158.0
+      depends_on:
+        supabase:
+          condition: service_healthy
+      environment:
+        # A chave que resolve o erro atual:
+        GOTRUE_DB_DRIVER: postgres
+        GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
+        #GOTRUE_SITE_URL: ${SITE_URL}
+        GOTRUE_JWT_SECRET: ${JWT_SECRET}
+        GOTRUE_EXTERNAL_EMAIL_ENABLED: "false"
+        # O GoTrue exige estas duas especificamente:
+        GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+        API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+        GOTRUE_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1
+      networks:
+        - evolution_net
+
+  studio:
+      container_name: supabase-studio
+      image: supabase/studio:latest
+      ports:
+        - "3000:3000"
+      environment:
+        # Esta é a linha que está faltando ou vazia
+        API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+        # Outras variáveis necessárias para o Studio
+        SUPABASE_URL: ${API_EXTERNAL_URL}
+        STUDIO_PG_META_URL: http://pg_meta:8080
+        # Variaveis do pg-meta
+        EDGE_FUNCTIONS_MANAGEMENT_FOLDER: /tmp/functions-management
+        EDGE_FUNCTIONS_PUBLIC_URL: http://localhost:8000/functions/v1
+        # chaves
+        SUPABASE_ANON_KEY: ${ANON_KEY}
+        SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      volumes:
+        - ./tmp:/tmp/functions-management
+      networks:
+        - evolution_net
+        
+  pg_meta:
+    container_name: supabase-pg-meta
+    image: supabase/postgres-meta:v0.68.0
+    environment:
+      PG_META_PORT: 8080
+      # Aponta para o seu serviço de banco de dados
+      PG_META_DB_HOST: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_META_DB_USER: postgres
+      PG_META_DB_NAME: postgres
+      PG_META_DB_PORT: 5432
+    networks:
+      - evolution_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # Porta de entrada (API Gateway)
+  kong:
+      container_name: supabase-kong
+      image: kong:3.4
+      environment:
+        KONG_PG_SSL: "off"  # Desativa SSL para conexão interna (resolve o erro de openssl)
+        KONG_PG_DATABASE: postgres
+        KONG_PG_HOST: postgres
+        KONG_PG_USER: postgres
+        KONG_PG_PASSWORD: ${POSTGRES_PASSWORD}
+      depends_on:
+        supabase:
+          condition: service_healthy
+      ports:
+        - "8000:8000"
+        - "8443:8443"
+      networks:
+        - evolution_net
+
+networks:
+  evolution_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  n8n_data:
+  redis_data:
+  evolution_instances:
+  tmp:
