@@ -26,6 +26,18 @@ services:
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     networks:
       - evolution_net
+  
+  pgadmin:
+    container_name: pgadmin_container
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: alairtonpereira.dev@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: GYO9BW6F
+    ports:
+      - "8080:80"
+    networks:
+      - evolution_net
 
   evolution-go:
     image: evoapicloud/evolution-go:latest
@@ -107,114 +119,6 @@ services:
     networks:
       - evolution_net
 
-  supabase:
-    container_name: supabase-db
-    image: supabase/postgres:15.1.1.78
-    healthcheck:
-      test: pg_isready -U postgres -h localhost
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    #command: postgres -c auth_delay.milliseconds=1000 -c password_encryption=md5
-    command: postgres -c password_encryption=md5
-    volumes:
-      - ./volumes/db/data:/var/lib/postgresql/data
-    networks:
-      - evolution_net
-
-  rest:
-      container_name: supabase-rest
-      image: postgrest/postgrest:v12.0.2
-      depends_on:
-        supabase:
-          condition: service_healthy
-      environment:
-        PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
-        PGRST_DB_SCHEMAS: public,storage,graphql_public
-        PGRST_JWT_SECRET: ${JWT_SECRET}
-      networks:
-        - evolution_net
-
-  auth:
-      container_name: supabase-auth
-      image: supabase/gotrue:v2.158.0
-      depends_on:
-        supabase:
-          condition: service_healthy
-      environment:
-        # A chave que resolve o erro atual:
-        GOTRUE_DB_DRIVER: postgres
-        GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
-        #GOTRUE_SITE_URL: ${SITE_URL}
-        GOTRUE_JWT_SECRET: ${JWT_SECRET}
-        GOTRUE_EXTERNAL_EMAIL_ENABLED: "false"
-        # O GoTrue exige estas duas especificamente:
-        GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
-        API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
-        GOTRUE_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1
-      networks:
-        - evolution_net
-
-  studio:
-      container_name: supabase-studio
-      image: supabase/studio:latest
-      ports:
-        - "3000:3000"
-      environment:
-        # Esta é a linha que está faltando ou vazia
-        API_EXTERNAL_URL: ${API_EXTERNAL_URL}
-        # Outras variáveis necessárias para o Studio
-        SUPABASE_URL: ${API_EXTERNAL_URL}
-        STUDIO_PG_META_URL: http://pg_meta:8080
-        # Variaveis do pg-meta
-        EDGE_FUNCTIONS_MANAGEMENT_FOLDER: /tmp/functions-management
-        EDGE_FUNCTIONS_PUBLIC_URL: http://localhost:8000/functions/v1
-        # chaves
-        SUPABASE_ANON_KEY: ${ANON_KEY}
-        SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      volumes:
-        - ./tmp:/tmp/functions-management
-      networks:
-        - evolution_net
-        
-  pg_meta:
-    container_name: supabase-pg-meta
-    image: supabase/postgres-meta:v0.68.0
-    environment:
-      PG_META_PORT: 8080
-      # Aponta para o seu serviço de banco de dados
-      PG_META_DB_HOST: postgres
-      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
-      PG_META_DB_USER: postgres
-      PG_META_DB_NAME: postgres
-      PG_META_DB_PORT: 5432
-    networks:
-      - evolution_net
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-    # Porta de entrada (API Gateway)
-  kong:
-      container_name: supabase-kong
-      image: kong:3.4
-      environment:
-        KONG_PG_SSL: "off"  # Desativa SSL para conexão interna (resolve o erro de openssl)
-        KONG_PG_DATABASE: postgres
-        KONG_PG_HOST: postgres
-        KONG_PG_USER: postgres
-        KONG_PG_PASSWORD: ${POSTGRES_PASSWORD}
-      depends_on:
-        supabase:
-          condition: service_healthy
-      ports:
-        - "8000:8000"
-        - "8443:8443"
-      networks:
-        - evolution_net
-
 networks:
   evolution_net:
     driver: bridge
@@ -224,4 +128,4 @@ volumes:
   n8n_data:
   redis_data:
   evolution_instances:
-  tmp:
+  evolution_logs:
